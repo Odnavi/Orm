@@ -1,15 +1,15 @@
 <?php
 
-namespace ORM\Attribute;
+namespace Odnavi\Orm\Attribute;
 
 use Attribute;
-use ORM\Entity\AbstractEntity;
-use ReflectionProperty;
+use Soffio\Core\Service\ReflectionFactory;
+use Odnavi\Orm\Entity\AbstractEntity;
 
 #[Attribute(Attribute::TARGET_PROPERTY)]
 class JoinColumn
 {
-    private ReflectionProperty $propertyReflection;
+    private string $propertyName = '';
 
     public function __construct(
         public string $name,
@@ -19,14 +19,10 @@ class JoinColumn
         public ?string $refColumn = null
     ) {}
 
-    /**
-     * Запоминает класс рефлексии
-     *
-     * @param ReflectionProperty $propertyReflection
-     */
-    public function setReflection(ReflectionProperty $propertyReflection): void
+    /** Запоминает имя свойства сущности, к которому привязана колонка. */
+    public function setPropertyName(string $propertyName): void
     {
-        $this->propertyReflection = $propertyReflection;
+        $this->propertyName = $propertyName;
     }
 
     public function getName(): string
@@ -39,15 +35,15 @@ class JoinColumn
         $this->name = $value;
     }
 
-    /**
-     * Заполняет колонку сущности, не вызывая сеттер
-     *
-     * @param AbstractEntity $entity
-     * @param mixed $value
-     */
+    /** Заполняет колонку сущности, не вызывая сеттер. */
     public function setValue(AbstractEntity $entity, $value): void
     {
-        isset($value) && $this->propertyReflection->setValue($entity, $value);
+        if (!isset($value)) {
+            return;
+        }
+
+        $reflection = ReflectionFactory::getProperty($entity::class, $this->propertyName);
+        $reflection && $reflection->setValue($entity, $value);
     }
 
     public function getTargetTable(): string

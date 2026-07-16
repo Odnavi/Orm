@@ -1,61 +1,31 @@
 <?php
 
-namespace ORM\Entity;
+namespace Odnavi\Orm\Entity;
 
 use BadMethodCallException;
-use DateTime;
-use DateTimeImmutable;
-use ORM\Attribute\{Entity, Table};
-use ORM\Manager;
-use ORM\Util\StringUtil;
-use ReflectionAttribute;
-use ReflectionClass;
-use ReflectionException;
+use Soffio\Core\Service\ReflectionFactory;
+use Soffio\Core\Util\StringUtil;
+use Odnavi\Orm\Attribute\Table;
+use Odnavi\Orm\Service\Hydration\RelationPreloader;
+use Odnavi\Orm\Service\Metadata\TableFactory;
+use Odnavi\Orm\Service\Value\PropertyAccessor;
 use ReflectionProperty;
 
 class AbstractEntity
 {
-    private array           $oldData = [];
-    private ReflectionClass $reflection;
-    private ?Table          $table;
+    private ?Table $table;
 
     private array $propertyCache = [];
 
+    /** Снимок «чистых» значений свойств для вычисления изменений. */
+    private array $ormOriginalData = [];
+
     public function __construct()
     {
-        $class = get_class($this);
-        $this->reflection = Manager::getReflection($class);
-        $this->table      = Manager::getTable($class);
+        $class       = get_class($this);
+        $this->table = TableFactory::get($class);
 
-        // Заполняем сущность первоначальными значениями
-        $properties = $this->reflection->getProperties(ReflectionProperty::IS_PROTECTED);
-        foreach ($properties as $property) {
-            $propertyName = $property->getName();
-
-            // Пропускаем статические свойства и уже заполненные дефолтными значениями
-            if ($property->isStatic() || isset($this->{$propertyName})) {
-                continue;
-            }
-
-            $propertyType = $property->getType();
-            if ($propertyType === null) {
-                continue;
-            }
-
-            $value = null;
-
-            // Если можно null
-            if ($propertyType->allowsNull()) {
-                $this->{$propertyName} = $value;
-                continue;
-            }
-
-            // Приведение значения к встроенному типу
-            if ($propertyType->isBuiltin()) {
-                settype($value, $propertyType->getName());
-                $this->{$propertyName} = $value;
-            }
-        }
+        PropertyAccessor::initializeDefaults($this);
 
         // Фиксируем значения
         $this->table && $this->table->flushValue($this);
@@ -94,131 +64,16 @@ class AbstractEntity
 
         if ($propertyExist) {
             if ($isGetter) {
-                return $this->getter($column);
+                return PropertyAccessor::get($this, $column, $params);
             }
 
             if ($isSetter) {
-                return $this->setter($column, $params);
+                PropertyAccessor::set($this, $column, $params);
+                return $this;
             }
         }
 
         throw new BadMethodCallException($message);
-    }
-
-    /**
-     * Отдает значение свойства
-     *
-     * @param $columnName
-     *
-     * @return mixed
-     */
-    private function getter($columnName): mixed
-    {
-        try {
-            $property = $this->reflection->getProperty($columnName);
-        } catch (ReflectionException) {
-            return $this->{$columnName};
-        }
-
-        $type = $property->getType();
-
-        // Тип DateTime
-        if ($type && in_array($type->getName(), ['DateTime', 'DateTimeImmutable'])) {
-            $value = $this->{$columnName};
-            if ($type->allowsNull() && !$value) {
-                return null;
-            }
-
-            $format = $params[0] ?? 'U';
-            $value  = $value->format($format);
-            return $format === 'U' ? (int)$value : $value;
-        }
-
-        return $this->{$columnName};
-    }
-
-    /**
-     * Заполняет свойство
-     *
-     * @param string $column
-     * @param array $params
-     *
-     * @return self
-     */
-    private function setter(string $column, array $params): self
-    {
-        try {
-            $property = $this->reflection->getProperty($column);
-        } catch (ReflectionException) {
-            return $this;
-        }
-
-        $value = $params[0] ?? null;
-        $type  = $property->getType();
-
-        // Разрешен null
-        if ($type->allowsNull() && is_null($value)) {
-            return $this;
-        }
-
-        $typeName = $type->getName();
-
-        // Тип DateTime
-        if (in_array($typeName, ['DateTime', 'DateTimeImmutable'])) {
-            if ($type->allowsNull() && !$value) {
-                $this->{$column} = null;
-                return $this;
-            }
-
-            !$value && $value = time();
-            /** @var DateTime|DateTimeImmutable $typeName*/
-            $this->{$column} = $typeName::createFromFormat($params[1] ?? 'U', $value);
-            return $this;
-        }
-
-        if ($type->isBuiltin()) {
-            settype($value, $typeName); // Приведение значения к встроенному типу
-        } elseif (!$value instanceof $typeName) {
-            return $this;
-        }
-
-        if (!isset($this->{$column}) || $this->{$column} !== $value) {
-            $this->{$column} = $value;
-        }
-
-        return $this;
-    }
-
-    public function getReflection(): ReflectionClass
-    {
-        return $this->reflection;
-    }
-
-    /**
-     * Сбрасывает значение свойства. Требуется после занесения изменений в бд.
-     *
-     * @param string $propertyName
-     */
-    final public function flushPropertyValue(string $propertyName): void
-    {
-        property_exists($this, $propertyName) && $this->oldData[$propertyName] = $this->{$propertyName} ?? null;
-    }
-
-    /**
-     * Получает имена свойств, которые были изменены.
-     *
-     * @return array
-     */
-    final public function getModifiedColumns(): array
-    {
-        $modifiedColumns = [];
-
-        foreach ($this->oldData as $columnName => $oldValue) {
-            $currentValue = $this->{$columnName} ?? null;
-            $currentValue !== $oldValue && $modifiedColumns[] = $columnName;
-        }
-
-        return $modifiedColumns;
     }
 
     /**
@@ -300,7 +155,7 @@ class AbstractEntity
      */
     public static function getFieldNames(string $format = StringUtil::FORMAT_CAMEL_CASE): array
     {
-        $reflection = new ReflectionClass(static::class);
+        $reflection = ReflectionFactory::getClass(static::class);
         $properties = $reflection->getProperties(ReflectionProperty::IS_PROTECTED);
 
         $fields = [];
@@ -319,7 +174,7 @@ class AbstractEntity
      */
     private function getSortedProperties(): array
     {
-        $properties = $this->reflection->getProperties(ReflectionProperty::IS_PROTECTED);
+        $properties = ReflectionFactory::getClass(static::class)->getProperties(ReflectionProperty::IS_PROTECTED);
 
         $properties = array_reverse(array_reduce($properties, function ($carry, $item) {
             $carry[$item->class][] = $item;
@@ -331,57 +186,30 @@ class AbstractEntity
 
     public function preloadRelations(): void
     {
-        // Кэш свойств с атрибутом Entity
-        $properties = $this->reflection->getProperties();
+        (new RelationPreloader())->preload($this);
+    }
 
-        $relations = [];
-        foreach ($properties as $property) {
-            $name = $property->getName();
-            $attributes = $property->getAttributes(Entity::class);
+    /**
+     * Фиксирует снимок «чистых» значений свойств сущности.
+     *
+     * @internal Используется ORM-слоем (UnitOfWork), не доменным кодом.
+     *
+     * @param array<string, mixed> $values Имя свойства => значение.
+     */
+    public function ormSnapshot(array $values): void
+    {
+        $this->ormOriginalData = $values;
+    }
 
-            if (empty($attributes)) {
-                continue;
-            }
-
-            /** @var ReflectionAttribute $attribute */
-            $attribute = reset($attributes);
-
-            $args = $attribute->getArguments();
-            if ($entityClass = $args['class']) {
-                $relations[$entityClass] = [
-                    'name'        => $name,
-                    'foreign_key' => $args['foreignKey'],
-                    'setter'      => 'set' . ucfirst($name),
-                    'getter'      => 'get' . ucfirst($args['foreignKey'])
-                ];
-            }
-        }
-
-        if (!$relations) {
-            return;
-        }
-
-        $data = [];
-        foreach ($relations as $entityClass => $args) {
-            $value = $this->{$args['getter']}();
-            $value && $data[$entityClass][] = $value;
-        }
-
-        $relationsData = [];
-        // Загружаем сущности одним запросом для каждого типа
-        foreach ($relations as $entityClass => $args) {
-            if (!empty($data[$entityClass])) {
-                $relationsData[$entityClass] = Manager::getRepository($entityClass)
-                    ->findAll(['id' => array_filter(array_unique($data[$entityClass]))])
-                    ->pluck(null, fn($entity) => $entity->getId());
-            }
-        }
-
-        foreach ($relations as $entityClass => $args) {
-            $id = $this->{$args['getter']}();
-            if (!empty($relationsData[$entityClass][$id])) {
-                $this->{$args['setter']}($relationsData[$entityClass][$id]);
-            }
-        }
+    /**
+     * Возвращает снимок «чистых» значений свойств сущности.
+     *
+     * @internal Используется ORM-слоем (UnitOfWork), не доменным кодом.
+     *
+     * @return array<string, mixed> Имя свойства => значение.
+     */
+    public function ormOriginal(): array
+    {
+        return $this->ormOriginalData;
     }
 }

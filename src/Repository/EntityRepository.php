@@ -1,21 +1,29 @@
 <?php
 
-namespace ORM\Repository;
+namespace Odnavi\Orm\Repository;
 
-use App\Profiler;
-use ORM\{Database, Manager, QueryBuilder};
+use Soffio\Core\ConnectionRegistry;
+use Soffio\Core\Contract\Connection;
+use Soffio\Core\Util\StringUtil;
 use Exception;
-use ORM\Attribute\{Table, Column};
-use ORM\Entity\{AbstractEntity, Collection};
-use ORM\Exception\NotFoundException;
-use ORM\Util\StringUtil;
+use Odnavi\Orm\Attribute\{Column, Table};
+use Odnavi\Orm\Entity\{AbstractEntity, Collection};
+use Odnavi\Orm\Exception\EntityNotFoundException;
+use Odnavi\Orm\Service\Hydration\EntityHydrator;
+use Odnavi\Orm\Service\IdentityMap;
+use Odnavi\Orm\Service\Metadata\TableFactory;
+use Odnavi\Orm\Service\QueryBuilder;
+use Odnavi\Orm\Service\Support\Profiling;
+use Odnavi\Orm\Service\UnitOfWork;
 
-class AbstractRepository
+class EntityRepository
 {
-    protected Table    $table;
-    protected Database $db;
+    protected Table      $table;
+    protected Connection $db;
     protected string   $entityClass;
     protected string   $entityNameLog;
+
+    private EntityHydrator $hydrator;
 
     private array  $columnNames = [];
     private string $alias;
@@ -26,9 +34,11 @@ class AbstractRepository
     {
         $entityClass && $this->entityClass = $entityClass;
         if (isset($this->entityClass)) {
-            $this->db = Manager::getDatabase();
-            $table    = Manager::getTable($this->entityClass);
+            $this->db = ConnectionRegistry::get();
+            $table    = TableFactory::get($this->entityClass);
             $table && $this->table = $table;
+
+            $this->hydrator = new EntityHydrator();
 
             $this->entityNameLog = substr($this->entityClass, strrpos($this->entityClass, '\\') + 1);
             $this->entityNameLog = StringUtil::toSnakeCase($this->entityNameLog);
@@ -43,7 +53,7 @@ class AbstractRepository
      * @param int|string $primaryValue
      * @param bool $cache
      *
-     * @return AbstractEntity
+     * @return \Odnavi\Orm\Entity\AbstractEntity
      */
     public function find(int|string $primaryValue, bool $cache = true): AbstractEntity
     {
@@ -63,8 +73,8 @@ class AbstractRepository
      * @param array $criteria
      * @param ?array $orderBy
      *
-     * @return AbstractEntity
-     * @throws NotFoundException
+     * @return \Odnavi\Orm\Entity\AbstractEntity
+     * @throws EntityNotFoundException
      */
     public function findOneBy(array $criteria = [], ?array $orderBy = null): AbstractEntity
     {
@@ -73,7 +83,7 @@ class AbstractRepository
 
         $item = $this->queryRow($query);
         if (!$item) {
-            throw new NotFoundException();
+            throw new EntityNotFoundException();
         }
 
         return $this->prepareItem($item);
@@ -89,7 +99,7 @@ class AbstractRepository
      * @param int|null $offset
      * @param bool $withTotal
      *
-     * @return Collection
+     * @return \Odnavi\Orm\Entity\Collection
      */
     public function findAll(array $criteria = [], ?array $orderBy = null, ?int $limit = null, ?int $offset = null, bool $withTotal = false): Collection
     {
@@ -107,7 +117,7 @@ class AbstractRepository
     /**
      * Создает новый ряд в таблице
      *
-     * @param AbstractEntity $entity
+     * @param \Odnavi\Orm\Entity\AbstractEntity $entity
      *
      * @return bool
      */
@@ -115,7 +125,7 @@ class AbstractRepository
     {
         $data = [];
 
-        $modifiedColumns = $entity->getModifiedColumns();
+        $modifiedColumns = array_keys(UnitOfWork::computeChangeSet($entity, $this->table->currentValues($entity)));
 
         foreach ($this->table->getColumns() as $column) {
             // Не отправляем неизмененные поля, кроме обязательных
@@ -142,13 +152,16 @@ class AbstractRepository
 
         $this->table->flushValue($entity);
 
+        $id = $this->getPrimaryValue($entity);
+        $id !== null && IdentityMap::getInstance()->put($this->entityClass, $id, $entity);
+
         return true;
     }
 
     /**
      * Обновляет ряд в таблице
      *
-     * @param AbstractEntity $entity
+     * @param \Odnavi\Orm\Entity\AbstractEntity $entity
      *
      * @return bool
      */
@@ -157,7 +170,7 @@ class AbstractRepository
         $data  = [];
         $where = [];
 
-        $modifiedColumns = $entity->getModifiedColumns();
+        $modifiedColumns = array_keys(UnitOfWork::computeChangeSet($entity, $this->table->currentValues($entity)));
         if (!$modifiedColumns) {
             return true;
         }
@@ -188,15 +201,37 @@ class AbstractRepository
             return false;
         }
 
-        //do_action('rb/props/update', $entity);
         $this->table->flushValue($entity);
         return true;
+    }
+
+    public function updateBy(array $criteria, array $data): int
+    {
+        $alias = $this->getAlias();
+        $query = $this
+            ->getQueryBuilder($criteria)
+            ->removeSelect()
+            ->removeFrom()
+            ->addUpdate($this->table->getName(), $alias);
+
+        foreach ($data as $column => $value) {
+            $query->addSet($column, $value);
+        }
+
+        $args  = $query->getArguments();
+        $query = $query->getQueryString();
+
+        $affected = $this->db
+            ->prepare($query, $args)
+            ->execute();
+
+        return $affected === false ? 0 : $affected;
     }
 
     /**
      * Удаляет ряд из таблицы
      *
-     * @param AbstractEntity $entity
+     * @param \Odnavi\Orm\Entity\AbstractEntity $entity
      *
      * @return bool
      */
@@ -223,6 +258,11 @@ class AbstractRepository
             return false;
         }
 
+        $id = $this->getPrimaryValue($entity);
+        $id !== null && IdentityMap::getInstance()->remove($this->entityClass, $id);
+
+        UnitOfWork::detach($entity);
+
         return true;
     }
 
@@ -231,7 +271,7 @@ class AbstractRepository
      *
      * @param array $data
      *
-     * @return AbstractEntity
+     * @return \Odnavi\Orm\Entity\AbstractEntity
      */
     public function saveData(array $data): AbstractEntity
     {
@@ -239,8 +279,8 @@ class AbstractRepository
         try {
             $entity = $this->find($data[$primaryKey], false);
             $method = 'update';
-        } catch (NotFoundException $e) {
-            /** @var AbstractEntity $entity */
+        } catch (EntityNotFoundException $e) {
+            /** @var \Odnavi\Orm\Entity\AbstractEntity $entity */
             $entity = new $this->entityClass();
             $method = 'create';
         }
@@ -256,7 +296,7 @@ class AbstractRepository
      *
      * @param array $criteria
      *
-     * @return QueryBuilder
+     * @return \Odnavi\Orm\Service\QueryBuilder
      */
     public function getQueryBuilder(array $criteria = []): QueryBuilder
     {
@@ -274,7 +314,7 @@ class AbstractRepository
     /**
      * Добавляет фильтрацию по наличию колонки
      *
-     * @param QueryBuilder $query
+     * @param \Odnavi\Orm\Service\QueryBuilder $query
      * @param array $criteria
      */
     public function applyFilter(QueryBuilder $query, array $criteria): void
@@ -287,7 +327,7 @@ class AbstractRepository
     /**
      * Добавляет сортировки
      *
-     * @param QueryBuilder $query
+     * @param \Odnavi\Orm\Service\QueryBuilder $query
      * @param array $orderBy
      * @param array $criteria
      */
@@ -301,7 +341,7 @@ class AbstractRepository
     /**
      * Добавляет сортировку по наличию колонки
      *
-     * @param QueryBuilder $query
+     * @param \Odnavi\Orm\Service\QueryBuilder $query
      * @param string $field
      * @param string $direction
      * @param array $criteria
@@ -315,14 +355,13 @@ class AbstractRepository
     /**
      * Выполняет кастомный запрос
      *
-     * @param QueryBuilder $query
+     * @param \Odnavi\Orm\Service\QueryBuilder $query
      *
-     * @return AbstractEntity[]
+     * @return array
      */
     public function query(QueryBuilder $query): array
     {
-        Profiler::startTimer("orm query $this->entityNameLog");
-       // $this->db->lastError = '';
+        Profiling::get()->start("orm query $this->entityNameLog");
 
         $args  = $query->getArguments();
         $query = $query->getQueryString();
@@ -331,17 +370,13 @@ class AbstractRepository
             ->prepare($query, $args)
             ->fetchAll();
 
-       // if (!$data && $this->db->lastError) {
-            //ошибка
-        //}
-
-        Profiler::stopTimer();
+        Profiling::get()->stop();
         return $data ?: [];
     }
 
     public function queryRow(QueryBuilder $query): ?array
     {
-        Profiler::startTimer("orm query_row $this->entityNameLog");
+        Profiling::get()->start("orm query_row $this->entityNameLog");
         $args  = $query->getArguments();
         $query = $query->getQueryString();
 
@@ -349,13 +384,13 @@ class AbstractRepository
             ->prepare($query, $args)
             ->fetch();
 
-        Profiler::stopTimer();
+        Profiling::get()->stop();
         return $item ?: null;
     }
 
     public function queryTotal(QueryBuilder $query): int
     {
-        Profiler::startTimer("orm query_total $this->entityNameLog");
+        Profiling::get()->start("orm query_total $this->entityNameLog");
         $alias      = $this->getAlias();
         $primaryKey = $this->table->getPrimaryKey();
 
@@ -373,7 +408,7 @@ class AbstractRepository
             ->prepare($query, $args)
             ->fetchOne();
 
-        Profiler::stopTimer();
+        Profiling::get()->stop();
         return $total;
     }
 
@@ -384,75 +419,51 @@ class AbstractRepository
      */
     final public function getLastError(): string
     {
-        return $this->db->lastError;
+        return $this->db->lastError();
     }
 
     /**
      * Добавляет в конструктор условия и аргументы для подготовки запроса
      *
-     * @param QueryBuilder $query
+     * @param \Odnavi\Orm\Service\QueryBuilder $query
      * @param string $name
      * @param string|string[]|int|int[] $value
      * @param bool $negative
      */
     final public function setCriterion(QueryBuilder $query, string $name, $value, bool $negative = false): void
     {
-        //if (strpos($name, '.') !== false) {
-           // $column = $name;
-       // } else {
-            $alias  = $this->getAlias();
-            $column = "$alias.$name";
-        //}
+        $alias  = $this->getAlias();
+        $column = "$alias.$name";
 
-        // Добавление условия для нескольких значений
+        // Условие для набора значений: IN / NOT IN
         if (is_array($value)) {
             $operator = $negative ? 'NOT IN' : 'IN';
 
             $whereIn = [];
             foreach (array_unique($value) as $criterionValue) {
-                if (is_string($criterionValue)) {
-                    $whereIn[] = '?';
-                    //$whereIn[] = '%s';
+                if (is_bool($criterionValue)) {
+                    $criterionValue = (int)$criterionValue;
+                }
+
+                if (is_string($criterionValue) || is_numeric($criterionValue)) {
+                    $whereIn[]      = '?';
                     $query->setArgument($criterionValue);
-                } elseif (is_numeric($criterionValue)) {
-                    $whereIn[] = '?';
-                    //$whereIn[] = '%d';
-                    $query->setArgument($criterionValue);
-                } elseif (is_bool($criterionValue)) {
-                    $whereIn[] = '?';
-                    //$whereIn[] = '%d';
-                    $query->setArgument((int)$criterionValue);
                 }
             }
 
-            $whereIn = implode(',', $whereIn);
-            $query->addWhere("$column $operator ($whereIn)");
+            $query->addWhere("$column $operator (" . implode(',', $whereIn) . ')');
             return;
         }
 
         $operator = $negative ? '!=' : '=';
 
-        // Добавление условия для строкового значения
-        if (is_string($value)) {
-            //if (strpos($value, '.') !== false) {
-             //   $query->addWhere("$column $operator $value");
-           // } else {
-                //$query->addWhere("$column $operator %s");
-                $query->addWhere("$column $operator ?");
-                $query->setArgument($value);
-           // }
+        if (is_bool($value)) {
+            $value = (int)$value;
         }
-        // Добавление условия для числового значения
-        elseif (is_numeric($value)) {
-            //$query->addWhere("$column $operator %d");
+
+        if (is_string($value) || is_numeric($value)) {
             $query->addWhere("$column $operator ?");
             $query->setArgument($value);
-        }
-        // Добавление условия для bool значения
-        elseif (is_bool($value)) {
-            //$query->addWhere("$column $operator %d");
-            $query->addWhere("$column $operator ?");
-            $query->setArgument((int)$value);
         }
     }
 
@@ -463,12 +474,8 @@ class AbstractRepository
         }
 
         $words = explode('_', $tableName ?: $this->table->getName());
-        $alias = '';
+        $alias = 't_';
         foreach ($words as $word) {
-            if ($word === 'wp') {
-                continue;
-            }
-
             $alias .= substr($word, 0, 1);
         }
 
@@ -479,6 +486,19 @@ class AbstractRepository
     final public function getEntityClass(): string
     {
         return $this->entityClass;
+    }
+
+    /** Возвращает значение первичного ключа сущности или null, если оно не задано. */
+    public function getPrimaryValue(AbstractEntity $entity): int|string|null
+    {
+        foreach ($this->table->getColumns() as $column) {
+            if ($column->isPrimary()) {
+                $value = $column->getValue($entity);
+                return is_int($value) || is_string($value) ? $value : null;
+            }
+        }
+
+        return null;
     }
 
     protected function prepareCriteria(array $oldCriteria, array $customNames = [], array $map = []): array
@@ -501,84 +521,27 @@ class AbstractRepository
     protected function prepareCollection(array $data, ?QueryBuilder $totalQuery = null): Collection
     {
         $collection = new Collection($this->entityClass);
-        $otherData  = $this->getOtherData($data);
 
-        Profiler::startTimer("orm prepare_collection $this->entityNameLog");
+        Profiling::get()->start("orm prepare_collection $this->entityNameLog");
         foreach ($data as $item) {
-            foreach ($otherData as $table) { // Добавляем данные из других таблиц
-                $refColumnValue = $item[$table['ref_column_name']];
-                isset($table['data'][$refColumnValue]) && $item = array_merge($item, $table['data'][$refColumnValue]);
-            }
-
             try {
-                $entity = $this->table->newEntityInstance($item);
-                $collection[] = $entity;
-            } catch (Exception $e) {
-                //Logger::error('props_error query reflection', $e->getMessage(), $e);
+                $collection[] = $this->hydrator->hydrate($this->table, $item);
+            } catch (Exception) {
+                // Пропускаем строки, которые не удалось гидрировать в сущность.
             }
         }
 
-        Profiler::stopTimer();
+        Profiling::get()->stop();
         $totalQuery && $collection->setTotal($this->queryTotal($totalQuery));
         return $collection;
     }
 
     protected function prepareItem(array $item): AbstractEntity
     {
-        $otherData = $this->getOtherData([$item]);
-
-        Profiler::startTimer("orm prepare_item $this->entityNameLog");
-        foreach ($otherData as $table) { // Добавляем данные из других таблиц
-            $refColumnValue = $item[$table['ref_column_name']];
-            isset($table['data'][$refColumnValue]) && $item = array_merge($item, $table['data'][$refColumnValue]);
-        }
-
-        $entity = $this->table->newEntityInstance($item);
-
-        Profiler::stopTimer();
+        Profiling::get()->start("orm prepare_item $this->entityNameLog");
+        $entity = $this->hydrator->hydrate($this->table, $item);
+        Profiling::get()->stop();
 
         return $entity;
-    }
-
-    protected function getOtherData(array $data): array
-    {
-        if (empty($data)) {
-            return [];
-        }
-
-        Profiler::startTimer("orm get_other_data $this->entityNameLog");
-        $otherData  = [];
-        $primaryKey = $this->table->getPrimaryKey();
-
-        // Формирование запросов для данных из других таблиц
-        foreach ($this->table->getJoinColumns() as $column) {
-            $targetTable = $column->getTargetTable();
-            $targetAlias = $this->getAlias($targetTable);
-
-            if (!isset($otherData[$targetTable])) {
-                $refColumn       = $column->getRefColumn() ?? $primaryKey;
-                $refColumnValues = implode(',', array_column($data, $refColumn));
-
-                $otherData[$targetTable] = [
-                    'ref_column_name' => $refColumn,
-                    'data'            => [],
-                    'query'           => (new QueryBuilder())
-                        ->addSelect("$targetAlias.{$column->getRefTargetColumn()}", $refColumn)
-                        ->addFrom($targetTable, $targetAlias)
-                        ->addWhere("$targetAlias.{$column->getRefTargetColumn()} IN ($refColumnValues)")
-                ];
-            }
-
-            $otherData[$targetTable]['query']->addSelect("$targetAlias.{$column->getTargetColumn()}", $column->getName());
-        }
-
-        // Получение данных из других таблиц
-        foreach ($otherData as $name => $table) {
-           // $data = $this->db->get_results($table['query']->getQueryString(), ARRAY_A);
-           // $data && $otherData[$name]['data'] = array_column($data, null, $table['ref_column_name']);
-        }
-
-        Profiler::stopTimer();
-        return $otherData;
     }
 }

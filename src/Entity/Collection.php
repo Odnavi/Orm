@@ -1,15 +1,16 @@
 <?php
 
-namespace ORM\Entity;
+namespace Odnavi\Orm\Entity;
 
-use App\Exception\NotFoundException;
 use ArrayAccess;
 use ArrayIterator;
+use Soffio\Core\Service\AttributeReader;
+use Soffio\Core\Service\ReflectionFactory;
 use Countable;
 use IteratorAggregate;
-use ORM\Attribute\Entity;
-use ORM\Manager;
-use ReflectionAttribute;
+use Odnavi\Orm\Attribute\Entity;
+use Odnavi\Orm\Service\RepositoryFactory;
+use ReflectionProperty;
 
 class Collection implements Countable, IteratorAggregate, ArrayAccess
 {
@@ -128,31 +129,34 @@ class Collection implements Countable, IteratorAggregate, ArrayAccess
         }
 
         // Кэш свойств с атрибутом Entity
-        $reflection = reset($this->collection)->getReflection();
-        $properties = $reflection->getProperties();
-
+        $reflection = ReflectionFactory::getClass($this->entityClass);
+        if ($reflection === null) {
+            return;
+        }
         // Группируем все сущности по типу
         $relations = [];
-        foreach ($properties as $property) {
-            $name = $property->getName();
-            $attributes = $property->getAttributes(Entity::class);
+        foreach (AttributeReader::getForProperties($reflection, ReflectionProperty::IS_PUBLIC | ReflectionProperty::IS_PROTECTED | ReflectionProperty::IS_PRIVATE) as ['property' => $property, 'attrs' => $attrs]) {
+            $relation = null;
+            foreach ($attrs as $attr) {
+                if ($attr instanceof Entity) {
+                    $relation = $attr;
+                    break;
+                }
+            }
 
-            if (empty($attributes)) {
+            if ($relation === null) {
                 continue;
             }
 
-            /** @var ReflectionAttribute $attribute */
-            $attribute = reset($attributes);
+            $name       = $property->getName();
+            $foreignKey = $relation->getForeignKey();
 
-            $args = $attribute->getArguments();
-            if ($entityClass = $args['class']) {
-                $relations[$entityClass] = [
-                    'name'        => $name,
-                    'foreign_key' => $args['foreignKey'],
-                    'setter'      => 'set' . ucfirst($name),
-                    'getter'      => 'get' . ucfirst($args['foreignKey'])
-                ];
-            }
+            $relations[$relation->getClass()] = [
+                'name'        => $name,
+                'foreign_key' => $foreignKey,
+                'setter'      => 'set' . ucfirst($name),
+                'getter'      => 'get' . ucfirst($foreignKey),
+            ];
         }
 
         if (!$relations) {
@@ -171,7 +175,7 @@ class Collection implements Countable, IteratorAggregate, ArrayAccess
         foreach ($relations as $entityClass => $args) {
             if (!empty($data[$entityClass])) {
                 $ids = array_filter(array_unique($data[$entityClass]));
-                $ids && $relationsData[$entityClass] = Manager::getRepository($entityClass)
+                $ids && $relationsData[$entityClass] = RepositoryFactory::get($entityClass)
                     ->findAll(['id' => $ids])
                     ->pluck(null, fn($entity) => $entity->getId());
             }

@@ -1,6 +1,6 @@
 <?php
 
-namespace ORM;
+namespace Odnavi\Orm\Service;
 
 class QueryBuilder
 {
@@ -15,6 +15,7 @@ class QueryBuilder
 
     private array $update = [];
     private array $set    = [];
+    private array $setArgs = [];
 
     private array $tableAliases = [];
     private array $columnAliases = [];
@@ -40,7 +41,7 @@ class QueryBuilder
         if ($alias && in_array($alias, $this->columnAliases)) {
             return $this;
         }
-        $field                 = $alias ? sprintf("%s AS '%s'", $field, $alias) : $field;
+        $field                 = $alias ? sprintf("%s AS %s", $field, $alias) : $field;
         $this->select[]        = $field;
         $alias && $this->columnAliases[] = $alias;
 
@@ -57,13 +58,8 @@ class QueryBuilder
      */
     public function addFrom(string $table, ?string $alias = ''): self
     {
-        if ($alias && in_array($alias, $this->tableAliases)) {
-            return $this;
-        }
-        $table                = $this->getTableString($table, $alias);
-        $this->from[]         = $table;
-        $alias && $this->tableAliases[] = $alias;
-
+        $table        = $this->getTableString($table, $alias);
+        $this->from[] = $table;
         return $this;
     }
 
@@ -140,30 +136,6 @@ class QueryBuilder
         return $this;
     }
 
-    public function addExists(QueryBuilder $query): self
-    {
-        return $this->addWhere($this->getExistsQueryString($query));
-    }
-
-    public function getExistsQueryString(?QueryBuilder $query = null): string
-    {
-        global $wpdb;
-
-        !$query && $query = $this;
-
-        $query
-            ->removeSelect()
-            ->removeGroupBy()
-            ->addSelect(1);
-
-        $args  = $query->getArguments();
-        $query = $query->getQueryString();
-
-        $query = $args ? $wpdb->prepare($query, $args) : $query;
-
-        return "EXISTS ($query)";
-    }
-
     /**
      * Добавляет выражение для группировки в GROUP BY
      *
@@ -229,28 +201,47 @@ class QueryBuilder
      */
     public function addUpdate(string $table, ?string $alias = ''): self
     {
-        if ($alias && in_array($alias, $this->tableAliases)) {
-            return $this;
-        }
-
         $table = $this->getTableString($table, $alias);
         $this->update[] = $table;
-        $alias && $this->tableAliases[] = $alias;
-
         return $this;
     }
 
     /**
-     * Добавляет SET
+     * Создаёт сырое SQL-выражение для SET с привязываемыми аргументами.
+     * Нужно для значений, которые нельзя передать литералом (ссылки на колонки,
+     * арифметика): `QueryBuilder::raw('balance + ?', [$impact])`.
+     *
+     * @param string $expr Выражение SQL с плейсхолдерами `?`.
+     * @param array $args Аргументы для плейсхолдеров выражения.
+     *
+     * @return RawExpression
+     */
+    public static function raw(string $expr, array $args = []): RawExpression
+    {
+        return new RawExpression($expr, $args);
+    }
+
+    /**
+     * Добавляет SET. Литеральные значения биндятся через плейсхолдер `?`,
+     * сырые выражения (RawExpression) вставляются как есть с привязкой их аргументов.
      *
      * @param string $field Столбец
-     * @param mixed $value Новое значение
+     * @param mixed $value Новое значение (литерал или RawExpression)
      *
      * @return QueryBuilder
      */
     public function addSet(string $field, $value): self
     {
-        $this->set[] = $field . ' = ' . $value;
+        if ($value instanceof RawExpression) {
+            $this->set[] = $field . ' = ' . $value->expr;
+            foreach ($value->args as $arg) {
+                $this->setArgs[] = $arg;
+            }
+            return $this;
+        }
+
+        $this->set[]     = $field . ' = ?';
+        $this->setArgs[] = $value;
         return $this;
     }
 
@@ -421,6 +412,12 @@ class QueryBuilder
         return $this->where;
     }
 
+    final public function setArguments(array $values): self
+    {
+        $this->args = array_merge($this->args, $values);
+        return $this;
+    }
+
     final public function setArgument($value): self
     {
         $this->args[] = $value;
@@ -429,6 +426,8 @@ class QueryBuilder
 
     final public function getArguments(): array
     {
-        return $this->args;
+        // В UPDATE секция SET идёт в строке до WHERE, поэтому её аргументы
+        // должны предшествовать аргументам WHERE. Для SELECT setArgs пуст.
+        return array_merge($this->setArgs, $this->args);
     }
 }

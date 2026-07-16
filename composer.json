@@ -1,10 +1,31 @@
 {
-    "name": "parfentev/orm",
+    "name": "odnavi/orm",
+    "description": "Лёгкая атрибутная ORM для PHP 8.2+ с identity map, unit of work и сменными драйверами (PDO, Doctrine DBAL, wpdb).",
+    "type": "library",
     "license": "MIT",
-    "description": "",
+    "keywords": ["orm", "database", "pdo", "dbal", "wpdb", "identity-map", "unit-of-work", "attributes"],
+    "authors": [
+        {
+            "name": "Ivan Parfentev"
+        }
+    ],
+    "require": {
+        "php": ">=8.2",
+        "ext-mbstring": "*",
+        "soffio/core": "@dev"
+    },
+    "suggest": {
+        "ext-pdo": "Для работы через PdoConnection (сырой PDO)",
+        "doctrine/dbal": "Для работы через DbalConnection"
+    },
     "autoload": {
         "psr-4": {
-            "ORM\\": "src/"
+            "Odnavi\\Orm\\": "src/"
         }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "config": {
+        "sort-packages": true
     }
 }

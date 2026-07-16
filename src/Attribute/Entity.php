@@ -1,6 +1,6 @@
 <?php
 
-namespace ORM\Attribute;
+namespace Odnavi\Orm\Attribute;
 
 use Attribute;
 
@@ -11,4 +11,14 @@ class Entity
         private string $foreignKey,
         private string $class
     ) {}
+
+    public function getForeignKey(): string
+    {
+        return $this->foreignKey;
+    }
+
+    public function getClass(): string
+    {
+        return $this->class;
+    }
 }
