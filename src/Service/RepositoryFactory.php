@@ -2,7 +2,7 @@
 
 namespace Odnavi\Orm\Service;
 
-use Soffio\Core\Service\ReflectionFactory;
+use Odnavi\Core\Service\ReflectionFactory;
 use Odnavi\Orm\Repository\EntityRepository;
 
 class RepositoryFactory

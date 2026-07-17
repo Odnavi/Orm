@@ -4,8 +4,8 @@ namespace Odnavi\Orm\Entity;
 
 use ArrayAccess;
 use ArrayIterator;
-use Soffio\Core\Service\AttributeReader;
-use Soffio\Core\Service\ReflectionFactory;
+use Odnavi\Core\Service\AttributeReader;
+use Odnavi\Core\Service\ReflectionFactory;
 use Countable;
 use IteratorAggregate;
 use Odnavi\Orm\Attribute\Entity;

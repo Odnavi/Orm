@@ -2,7 +2,7 @@
 
 namespace Odnavi\Orm\Service;
 
-use Soffio\Core\ConnectionRegistry;
+use Odnavi\Core\ConnectionRegistry;
 use Odnavi\Orm\Entity\AbstractEntity;
 use Odnavi\Orm\Repository\EntityRepository;
 use RuntimeException;

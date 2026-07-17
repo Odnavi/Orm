@@ -2,9 +2,9 @@
 
 namespace Odnavi\Orm\Repository;
 
-use Soffio\Core\ConnectionRegistry;
-use Soffio\Core\Contract\Connection;
-use Soffio\Core\Util\StringUtil;
+use Odnavi\Core\ConnectionRegistry;
+use Odnavi\Core\Contract\Connection;
+use Odnavi\Core\Util\StringUtil;
 use Exception;
 use Odnavi\Orm\Attribute\{Column, Table};
 use Odnavi\Orm\Entity\{AbstractEntity, Collection};

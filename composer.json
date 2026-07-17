@@ -12,7 +12,7 @@
     "require": {
         "php": ">=8.2",
         "ext-mbstring": "*",
-        "soffio/core": "@dev"
+        "odnavi/core": "@dev"
     },
     "suggest": {
         "ext-pdo": "Для работы через PdoConnection (сырой PDO)",

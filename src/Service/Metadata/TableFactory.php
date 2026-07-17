@@ -2,8 +2,8 @@
 
 namespace Odnavi\Orm\Service\Metadata;
 
-use Soffio\Core\Service\AttributeReader;
-use Soffio\Core\Service\ReflectionFactory;
+use Odnavi\Core\Service\AttributeReader;
+use Odnavi\Core\Service\ReflectionFactory;
 use Odnavi\Orm\Attribute\Table;
 use Odnavi\Orm\Service\Support\Caching;
 use ReflectionClass;

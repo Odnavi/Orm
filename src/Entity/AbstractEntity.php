@@ -3,8 +3,8 @@
 namespace Odnavi\Orm\Entity;
 
 use BadMethodCallException;
-use Soffio\Core\Service\ReflectionFactory;
-use Soffio\Core\Util\StringUtil;
+use Odnavi\Core\Service\ReflectionFactory;
+use Odnavi\Core\Util\StringUtil;
 use Odnavi\Orm\Attribute\Table;
 use Odnavi\Orm\Service\Hydration\RelationPreloader;
 use Odnavi\Orm\Service\Metadata\TableFactory;

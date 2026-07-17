@@ -2,7 +2,7 @@
 
 namespace Odnavi\Orm\Service\Support;
 
-use Soffio\Core\Contract\Profiler;
+use Odnavi\Core\Contract\Profiler;
 
 /**
  * Держатель активного профайлера ORM. По умолчанию — NullProfiler (no-op).

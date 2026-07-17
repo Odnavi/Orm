@@ -2,7 +2,7 @@
 
 namespace Odnavi\Orm\Service\Support;
 
-use Soffio\Core\Contract\Cache;
+use Odnavi\Core\Contract\Cache;
 
 /**
  * Пустая реализация кэша (no-op). Используется по умолчанию, пока приложение

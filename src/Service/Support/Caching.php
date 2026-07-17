@@ -2,7 +2,7 @@
 
 namespace Odnavi\Orm\Service\Support;
 
-use Soffio\Core\Contract\Cache;
+use Odnavi\Core\Contract\Cache;
 
 /**
  * Держатель активного кэша ORM. По умолчанию — NullCache (no-op).

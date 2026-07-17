@@ -2,7 +2,7 @@
 
 namespace Odnavi\Orm\Service\Support;
 
-use Soffio\Core\Contract\Profiler;
+use Odnavi\Core\Contract\Profiler;
 
 /** Профайлер по умолчанию: ничего не делает. */
 final class NullProfiler implements Profiler
