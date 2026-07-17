@@ -2,7 +2,7 @@
 
 namespace Odnavi\Orm\Service;
 
-use Soffio\Core\ConnectionRegistry;
+use Odnavi\Core\DbRegistry;
 use Odnavi\Orm\Entity\AbstractEntity;
 use Odnavi\Orm\Repository\EntityRepository;
 use RuntimeException;
@@ -71,7 +71,7 @@ final class EntityManager
             return;
         }
 
-        ConnectionRegistry::get()->transactional(function (): void {
+        DbRegistry::get()->transactional(function (): void {
             foreach ($this->persist as $entity) {
                 $repo = RepositoryFactory::get($entity::class);
                 $ok   = $this->isNew($entity, $repo)

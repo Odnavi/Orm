@@ -3,9 +3,9 @@
 namespace Odnavi\Orm\Service\Metadata;
 
 use BackedEnum;
-use Soffio\Core\Service\AttributeReader;
-use Soffio\Core\Service\ReflectionFactory;
-use Soffio\Core\Util\StringUtil;
+use Odnavi\Core\Service\AttributeReader;
+use Odnavi\Core\Service\ReflectionFactory;
+use Odnavi\Core\Util\StringUtil;
 use Odnavi\Orm\Attribute\Column;
 use Odnavi\Orm\Attribute\JoinColumn;
 use ReflectionEnum;

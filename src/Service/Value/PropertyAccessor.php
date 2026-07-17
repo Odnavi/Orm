@@ -3,7 +3,7 @@
 namespace Odnavi\Orm\Service\Value;
 
 use BackedEnum;
-use Soffio\Core\Service\ReflectionFactory;
+use Odnavi\Core\Service\ReflectionFactory;
 use Odnavi\Orm\Entity\AbstractEntity;
 use ReflectionProperty;
 

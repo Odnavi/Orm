@@ -3,7 +3,7 @@
 namespace Odnavi\Orm\Attribute;
 
 use Attribute;
-use Soffio\Core\Service\ReflectionFactory;
+use Odnavi\Core\Service\ReflectionFactory;
 use Odnavi\Orm\Entity\AbstractEntity;
 
 #[Attribute(Attribute::TARGET_PROPERTY)]

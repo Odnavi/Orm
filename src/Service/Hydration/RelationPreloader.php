@@ -2,8 +2,8 @@
 
 namespace Odnavi\Orm\Service\Hydration;
 
-use Soffio\Core\Service\AttributeReader;
-use Soffio\Core\Service\ReflectionFactory;
+use Odnavi\Core\Service\AttributeReader;
+use Odnavi\Core\Service\ReflectionFactory;
 use Odnavi\Orm\Attribute\Entity;
 use Odnavi\Orm\Entity\AbstractEntity;
 use Odnavi\Orm\Service\RepositoryFactory;
