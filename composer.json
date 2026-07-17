@@ -15,8 +15,8 @@
         "odnavi/core": "@dev"
     },
     "suggest": {
-        "ext-pdo": "Для работы через PdoConnection (сырой PDO)",
-        "doctrine/dbal": "Для работы через DbalConnection"
+        "ext-pdo": "Для работы через PdoDb (сырой PDO)",
+        "doctrine/dbal": "Для работы через DbalDb"
     },
     "autoload": {
         "psr-4": {

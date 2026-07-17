@@ -2,8 +2,8 @@
 
 namespace Odnavi\Orm\Repository;
 
-use Odnavi\Core\ConnectionRegistry;
-use Odnavi\Core\Contract\Connection;
+use Odnavi\Core\DbRegistry;
+use Odnavi\Core\Contract\Db;
 use Odnavi\Core\Util\StringUtil;
 use Exception;
 use Odnavi\Orm\Attribute\{Column, Table};
@@ -18,8 +18,8 @@ use Odnavi\Orm\Service\UnitOfWork;
 
 class EntityRepository
 {
-    protected Table      $table;
-    protected Connection $db;
+    protected Table $table;
+    protected Db    $db;
     protected string   $entityClass;
     protected string   $entityNameLog;
 
@@ -34,7 +34,7 @@ class EntityRepository
     {
         $entityClass && $this->entityClass = $entityClass;
         if (isset($this->entityClass)) {
-            $this->db = ConnectionRegistry::get();
+            $this->db = DbRegistry::get();
             $table    = TableFactory::get($this->entityClass);
             $table && $this->table = $table;
 
