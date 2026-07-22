@@ -3,6 +3,7 @@
 namespace Odnavi\Orm\Entity;
 
 use BadMethodCallException;
+use Odnavi\Core\Contract\Entity;
 use Odnavi\Core\Service\ReflectionFactory;
 use Odnavi\Core\Util\StringUtil;
 use Odnavi\Orm\Attribute\Table;
@@ -11,7 +12,7 @@ use Odnavi\Orm\Service\Metadata\TableFactory;
 use Odnavi\Orm\Service\Value\PropertyAccessor;
 use ReflectionProperty;
 
-class AbstractEntity
+class AbstractEntity implements Entity
 {
     private ?Table $table;
 
@@ -83,7 +84,7 @@ class AbstractEntity
      *
      * @return self
      */
-    final public function fromArray(array $data): self
+    final public function fromArray(array $data): static
     {
         if (!$this->table) {
             return $this;

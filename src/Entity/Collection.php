@@ -4,6 +4,7 @@ namespace Odnavi\Orm\Entity;
 
 use ArrayAccess;
 use ArrayIterator;
+use Odnavi\Core\Contract\EntityCollection;
 use Odnavi\Core\Service\AttributeReader;
 use Odnavi\Core\Service\ReflectionFactory;
 use Countable;
@@ -12,7 +13,7 @@ use Odnavi\Orm\Attribute\Entity;
 use Odnavi\Orm\Service\RepositoryFactory;
 use ReflectionProperty;
 
-class Collection implements Countable, IteratorAggregate, ArrayAccess
+class Collection implements Countable, IteratorAggregate, ArrayAccess, EntityCollection
 {
     private int $total = 0;
 
